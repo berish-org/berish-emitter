@@ -1,4 +1,4 @@
-import { EventEmitter } from '../emitter';
+import { EventEmitter } from '../eventEmitter';
 
 class TestEmitter<EventMap extends { [eventName: string]: any }> extends EventEmitter<EventMap> {
   static createTestEmitter<EventMap extends { [eventName: string]: any }>() {
@@ -8,6 +8,10 @@ class TestEmitter<EventMap extends { [eventName: string]: any }> extends EventEm
 
   public get testEvents() {
     return this._events;
+  }
+
+  public get testStates() {
+    return this._states;
   }
 }
 
@@ -164,10 +168,7 @@ describe('test emitter', () => {
       return 'test';
     };
 
-    const results = await Promise.all([
-      emitter.cacheCall('query1', testCallback),
-      emitter.cacheCall('query1', testCallback),
-    ]);
+    const results = await Promise.all([emitter.cacheCall('query1', testCallback), emitter.cacheCall('query1', testCallback)]);
 
     expect(results).toEqual(['test', 'test']);
     expect(count).toBe(1);
@@ -239,6 +240,37 @@ describe('test emitter', () => {
     expect(testStringRaw).toBe('1 1 1');
     expect(testStringCache).toBe('1 1 1 1');
     expect(isListinig).toBe(false);
+
+    done();
+  });
+
+  test('check state', async done => {
+    let test1Called1 = false;
+    let test1Called2 = false;
+    let test2Called1 = false;
+    let test2Called2 = false;
+    const emitter = TestEmitter.createTestEmitter();
+
+    emitter.on('test1', data => {
+      test1Called1 = data;
+    });
+
+    emitter.on('test2', data => (test2Called1 = data));
+
+    emitter.emitStateSync('test1', true);
+    emitter.emitSync('test2', true);
+
+    emitter.on('test1', data => {
+      test1Called2 = data;
+    });
+    emitter.on('test2', data => (test2Called2 = data));
+
+    expect(test1Called1).toBeTruthy();
+    expect(test1Called2).toBeTruthy();
+    expect(test2Called1).toBeTruthy();
+    expect(test2Called2).toBeFalsy();
+
+    emitter.offAll();
 
     done();
   });

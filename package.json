@@ -48,6 +48,7 @@
     "typescript": "^3.5.2"
   },
   "dependencies": {
+    "@berish/linq": "^1.1.0",
     "berish-guid": "^2.0.0"
   }
 }

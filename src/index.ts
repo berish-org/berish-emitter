@@ -1,4 +1,2 @@
-import { EventEmitter } from './emitter';
-
-export * from './emitter';
-export default EventEmitter;
+export * from './eventEmitter';
+export { EventEmitter as default } from './eventEmitter';
