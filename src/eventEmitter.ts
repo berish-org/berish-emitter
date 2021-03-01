@@ -47,8 +47,15 @@ export class EventEmitter<
     return eventHash;
   }
 
-  public waitEvent<EventName extends keyof EventMap>(eventName: EventName) {
-    return new Promise<EventMap[EventName]>((resolve, reject) => {
+  /**
+   * Возвращает Promise в ожидании срабатывания события
+   * @param eventName Название события
+   * @param stateName Название этапа
+   */
+  public waitEvent<EventName extends keyof EventMap>(eventName: EventName): Promise<EventMap[EventName]>;
+  public waitEvent<StateName extends keyof StateMap>(stateName: StateName): Promise<StateMap[StateName]>;
+  public waitEvent<EventName extends keyof EventMap>(eventName: EventName): Promise<any> {
+    return new Promise<any>((resolve, reject) => {
       this.on(eventName, (data, eventHash) => {
         try {
           resolve(data);
@@ -82,7 +89,13 @@ export class EventEmitter<
     }
   }
 
-  public offEvent(eventName: keyof EventMap): void {
+  /**
+   * Прекращает прослушивать конкретное событие
+   * @param eventName
+   */
+  public offEvent(eventName: keyof EventMap): void;
+  public offEvent(stateName: keyof StateMap): void;
+  public offEvent(eventName: any): void {
     this._events = this._events.filter(m => m.eventName !== eventName);
     this.emitSync(`off_event_${eventName}`);
   }
@@ -123,10 +136,6 @@ export class EventEmitter<
     await this.emitAsync(stateName, data);
   }
 
-  public hasState<StateName extends keyof StateMap>(stateName: StateName) {
-    return this._states.some(m => m.stateName === stateName);
-  }
-
   public removeState<StateName extends keyof StateMap>(stateName: StateName) {
     this._states = this._states.filter(m => m.stateName !== stateName);
   }
@@ -140,15 +149,19 @@ export class EventEmitter<
   }
 
   public has(eventHash: string): boolean {
-    return !!this._events.filter(m => m.eventHash === eventHash)[0];
+    return this._events.some(m => m.eventHash === eventHash);
+  }
+
+  public hasState<StateName extends keyof StateMap>(stateName: StateName) {
+    return this._states.some(m => m.stateName === stateName);
   }
 
   public hasEvent(eventName: keyof EventMap): boolean {
-    return !!this._events.filter(m => m.eventName === eventName)[0];
+    return this._events.some(m => m.eventName === eventName);
   }
 
   public hasCallback(callback: SubscribeType<any>): boolean {
-    return !!this._events.filter(m => m.callback === callback)[0];
+    return this._events.some(m => m.callback === callback);
   }
 
   /**
