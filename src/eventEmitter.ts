@@ -108,17 +108,23 @@ export class EventEmitter<
     return this.on(`off_event_${eventName}`, callback);
   }
 
+  public getEvents<EventName extends keyof EventMap>(eventName: EventName): EventObject<EventMap[EventName]>[];
+  public getEvents<StateName extends keyof StateMap>(stateName: StateName): EventObject<StateMap[StateName]>[];
+  public getEvents(eventName: any): EventObject<any>[] {
+    return this._events.filter(m => m.eventName === eventName);
+  }
+
   public emitSync<EventName extends keyof EventMap>(eventName: EventName, data?: EventMap[EventName]): void;
   public emitSync<StateName extends keyof StateMap>(stateName: StateName, data?: StateMap[StateName]): void;
   public emitSync(eventName: any, data?: any): void {
-    const events = this._events.filter(m => m.eventName === eventName);
+    const events = this.getEvents(eventName);
     events.map(event => event.callback(data, event.eventHash));
   }
 
   public async emitAsync<EventName extends keyof EventMap>(eventName: EventName, data?: EventMap[EventName]): Promise<void>;
   public async emitAsync<StateName extends keyof StateMap>(stateName: StateName, data?: StateMap[StateName]): Promise<void>;
   public async emitAsync(eventName: string, data?: any): Promise<void> {
-    const events = this._events.filter(m => m.eventName === eventName);
+    const events = this.getEvents(eventName);
     await Promise.all(events.map(event => event.callback(data, event.eventHash)));
   }
 
