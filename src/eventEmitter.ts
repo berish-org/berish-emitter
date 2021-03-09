@@ -1,7 +1,7 @@
 import LINQ from '@berish/linq';
 import guid from 'berish-guid';
 
-export type SubscribeType<Data> = (data: Data, eventHash: string) => void | Promise<void>;
+export type SubscribeType<Data, Result = void | Promise<void>> = (data: Data, eventHash: string) => Result;
 
 export type EventNameType = string | number | symbol;
 
@@ -10,10 +10,10 @@ export type EmitterMapBaseType = {
   [name: number]: any;
 };
 
-export interface EventObject<Data> {
+export interface EventObject<Data, Result = void | Promise<void>> {
   eventName: EventNameType;
   eventHash: string;
-  callback: SubscribeType<Data>;
+  callback: SubscribeType<Data, Result>;
 }
 
 export interface StateObject<Data> {
@@ -21,12 +21,40 @@ export interface StateObject<Data> {
   data: Data;
 }
 
-export class EventEmitter<
-  EventMap extends EmitterMapBaseType = EmitterMapBaseType,
-  StateMap extends EmitterMapBaseType = EmitterMapBaseType
-> {
+export class EventEmitter<EventMap extends EmitterMapBaseType = EmitterMapBaseType, StateMap extends EmitterMapBaseType = EmitterMapBaseType> {
   protected _events: EventObject<any>[] = [];
+  protected _offTriggers: EventObject<any>[] = [];
   protected _states: StateObject<any>[] = [];
+
+  public createNewEmitter(filter?: (eventObjects: EventObject<any>[]) => EventObject<any> | EventObject<any>[]): this {
+    const cls: new () => this = this.constructor as any;
+    const emitter = new cls();
+    const newEvents = filter ? filter(this._events) : [...this._events];
+    emitter._events = Array.isArray(newEvents) ? newEvents : [newEvents];
+    return emitter;
+  }
+
+  public getEvents<EventName extends keyof EventMap, Result = void | Promise<void>>(eventName: EventName): EventObject<EventMap[EventName], Result>[];
+  public getEvents<StateName extends keyof StateMap, Result = void | Promise<void>>(stateName: StateName): EventObject<StateMap[StateName], Result>[];
+  public getEvents(eventName: any): EventObject<any>[] {
+    return this._events.filter(m => m.eventName === eventName);
+  }
+
+  public has(eventHash: string): boolean {
+    return this._events.some(m => m.eventHash === eventHash);
+  }
+
+  public hasState<StateName extends keyof StateMap>(stateName: StateName) {
+    return this._states.some(m => m.stateName === stateName);
+  }
+
+  public hasEvent(eventName: keyof EventMap): boolean {
+    return this._events.some(m => m.eventName === eventName);
+  }
+
+  public hasCallback(callback: SubscribeType<any>): boolean {
+    return this._events.some(m => m.callback === callback);
+  }
 
   /**
    * Прослушивание события
@@ -69,23 +97,21 @@ export class EventEmitter<
   }
 
   /**
-   * Прекратить прослушивание всех событий
-   */
-  public offAll(): void {
-    this._events = [];
-  }
-
-  /**
    * Прекратить прослушивать событие конкретного идентификатора
    * @param eventHash Уникальный идентификатор события прослушивания
    */
   public off(eventHash: string): void {
-    const currentEvent = this._events.filter(m => m.eventHash === eventHash)[0];
-    const currentEventName = currentEvent && currentEvent.eventName;
-    this._events = this._events.filter(m => m.eventHash !== eventHash);
-    this.emitSync(`off_${eventHash}`);
-    if (currentEventName && this._events.filter(m => m.eventName === currentEventName).length <= 0) {
-      this.emitSync(`off_event_${currentEventName.toString()}`);
+    const currentEvent = LINQ.from(this._events).first(m => m.eventHash === eventHash);
+    const eventName = currentEvent && (currentEvent.eventName as keyof EventMap);
+
+    this._offAction(eventHash);
+
+    try {
+      this._offEmit(eventHash);
+      if (this.getEvents(eventName).length <= 0) this._offEventEmit(eventName);
+      if (this._events.length <= 0) this._offAllEmit();
+    } catch (err) {
+      // IGNORE
     }
   }
 
@@ -96,36 +122,72 @@ export class EventEmitter<
   public offEvent(eventName: keyof EventMap): void;
   public offEvent(stateName: keyof StateMap): void;
   public offEvent(eventName: any): void {
-    this._events = this._events.filter(m => m.eventName !== eventName);
-    this.emitSync(`off_event_${eventName}`);
+    const events = LINQ.from(this.getEvents(eventName)).map(m => m.eventHash);
+
+    this._offEventAction(eventName);
+
+    try {
+      events.forEach(eventHash => this._offEmit(eventHash));
+      this._offEventEmit(eventName);
+      if (this._events.length <= 0) this._offAllEmit();
+    } catch (err) {
+      // IGNORE
+    }
+  }
+
+  /**
+   * Прекратить прослушивание всех событий
+   */
+  public offAll(): void {
+    const events = LINQ.from(this._events).map(m => m.eventHash);
+    const eventNames = LINQ.from(this._events)
+      .map(m => m.eventName)
+      .distinct(m => m);
+
+    try {
+      events.forEach(eventHash => this._offEmit(eventHash));
+      eventNames.forEach(eventName => this._offEventEmit(eventName));
+      this._offAllEmit();
+    } catch (err) {
+      // IGNORE
+    }
+    this._offAllAction();
   }
 
   public triggerOff(eventHash: string, callback: () => void): string {
-    return this.on(`off_${eventHash}`, callback);
+    const offName = getOffName(eventHash);
+
+    return this._onTriggerOff(offName, callback);
   }
 
   public triggerOffEvent(eventName: keyof EventMap, callback: () => void): string {
-    return this.on(`off_event_${eventName}`, callback);
+    const offEventName = getOffEventName(eventName.toString());
+
+    return this._onTriggerOff(offEventName, callback);
   }
 
-  public getEvents<EventName extends keyof EventMap>(eventName: EventName): EventObject<EventMap[EventName]>[];
-  public getEvents<StateName extends keyof StateMap>(stateName: StateName): EventObject<StateMap[StateName]>[];
-  public getEvents(eventName: any): EventObject<any>[] {
-    return this._events.filter(m => m.eventName === eventName);
+  public triggerOffAll(callback: () => void): string {
+    const offAllName = getOffAllName();
+
+    return this._onTriggerOff(offAllName, callback);
   }
 
-  public emitSync<EventName extends keyof EventMap>(eventName: EventName, data?: EventMap[EventName]): void;
-  public emitSync<StateName extends keyof StateMap>(stateName: StateName, data?: StateMap[StateName]): void;
+  public offTriggerOff(eventHash: string) {
+    this._offTriggerOff(eventHash);
+  }
+
+  public emitSync<EventName extends keyof EventMap>(eventName: EventName, data: EventMap[EventName]): void;
+  public emitSync<StateName extends keyof StateMap>(stateName: StateName, data: StateMap[StateName]): void;
   public emitSync(eventName: any, data?: any): void {
     const events = this.getEvents(eventName);
     events.map(event => event.callback(data, event.eventHash));
   }
 
-  public async emitAsync<EventName extends keyof EventMap>(eventName: EventName, data?: EventMap[EventName]): Promise<void>;
-  public async emitAsync<StateName extends keyof StateMap>(stateName: StateName, data?: StateMap[StateName]): Promise<void>;
+  public async emitAsync<EventName extends keyof EventMap>(eventName: EventName, data: EventMap[EventName]): Promise<void>;
+  public async emitAsync<StateName extends keyof StateMap>(stateName: StateName, data: StateMap[StateName]): Promise<void>;
   public async emitAsync(eventName: string, data?: any): Promise<void> {
     const events = this.getEvents(eventName);
-    await Promise.all(events.map(event => event.callback(data, event.eventHash)));
+    await Promise.all(events.map(async event => event.callback(data, event.eventHash)));
   }
 
   public emitStateSync<StateName extends keyof StateMap>(stateName: StateName, data: StateMap[StateName]) {
@@ -146,90 +208,59 @@ export class EventEmitter<
     this._states = this._states.filter(m => m.stateName !== stateName);
   }
 
-  public createNewEmitter(filter?: (eventObjects: EventObject<any>[]) => EventObject<any> | EventObject<any>[]): this {
-    const cls: new () => this = this.constructor as any;
-    const emitter = new cls();
-    const newEvents = filter ? filter(this._events) : [...this._events];
-    emitter._events = Array.isArray(newEvents) ? newEvents : [newEvents];
-    return emitter;
-  }
+  public _onTriggerOff(eventName: string, callback: SubscribeType<any>): string {
+    const eventHash = `trigger_off_${guid.guid()}`;
+    this._offTriggers.push({ eventName, eventHash, callback });
 
-  public has(eventHash: string): boolean {
-    return this._events.some(m => m.eventHash === eventHash);
-  }
-
-  public hasState<StateName extends keyof StateMap>(stateName: StateName) {
-    return this._states.some(m => m.stateName === stateName);
-  }
-
-  public hasEvent(eventName: keyof EventMap): boolean {
-    return this._events.some(m => m.eventName === eventName);
-  }
-
-  public hasCallback(callback: SubscribeType<any>): boolean {
-    return this._events.some(m => m.callback === callback);
-  }
-
-  /**
-   * Кешированный вызов метода. Если событие уже зарегистрировано, начинает прослушивать событие без дополнительных вызовов.
-   * Если события нет, то получает ответ и отправляет всем, кто прослушивает это же событие
-   * @param eventName Ключ, по которому определяется уникальность кешированных вызовов
-   * @param callback Настоящий вызов метода. Вызвается единожды для кешированного вызова
-   */
-  public cacheCall<Result>(eventName: string, callback: () => Result | Promise<Result>): Promise<Result> {
-    return new Promise((resolve, reject) => {
-      const responseCall = (type: 'resolve' | 'reject', data: Result) => {
-        if (type === 'resolve') return resolve(data);
-        return reject(data);
-      };
-      const hasEvent = this.hasEvent(eventName);
-      const eventHash = this.on(eventName, ({ data, type }) => {
-        responseCall(type, data);
-        if (this.has(eventHash)) this.off(eventHash);
-      });
-      if (!hasEvent) {
-        Promise.resolve()
-          .then(() => callback())
-          .then(result => {
-            return this.emitAsync<any>(eventName, { data: result, type: 'resolve' });
-          })
-          .catch(err => {
-            return this.emitAsync<any>(eventName, { data: err, type: 'resolve' });
-          });
-      }
-    });
-  }
-
-  /**
-   * Кешированный подписка. Если подписка уже зарегистрирована, начинает прослушивать без дополнительной подписки.
-   * Если подписки нет, то вызывает метод главной подписки и после вызывает метод кешированной подписки
-   * @param eventName Ключ, по которому определяется уникальность кешированных вызовов
-   * @param callCallback Настоящий вызов метода подписки. Вызвается единожды для кешированной подписки
-   * @param cacheCallback Метод кешированной подписки
-   */
-  public cacheSubscribe<Result>(
-    eventName: string,
-    callCallback: (callback: (data: Result) => void) => (() => void) | Promise<() => void>,
-    cacheCallback: (data: Result) => void,
-  ) {
-    const hasEvent = this.hasEvent(eventName);
-    const eventHash = this.on(eventName, cacheCallback);
-    if (!hasEvent) {
-      let unlistenerPromise = Promise.resolve().then(() =>
-        callCallback(data => {
-          this.emitAsync<any>(eventName, data);
-        }),
-      );
-      const triggerOffEventHash = this.triggerOffEvent(eventName, async () => {
-        let unlistener = unlistenerPromise && (await unlistenerPromise);
-        if (unlistener) {
-          unlistener();
-          unlistener = null;
-          unlistenerPromise = null;
-        }
-        this.off(triggerOffEventHash);
-      });
-    }
     return eventHash;
   }
+
+  public _offTriggerOff(eventHash: string): void {
+    this._offTriggers = this._offTriggers.filter(m => m.eventHash !== eventHash);
+  }
+
+  private _offEmit(eventHash: string): void {
+    const offEventName = getOffName(eventHash);
+    const offEvents = this._offTriggers.filter(m => m.eventName === offEventName);
+
+    offEvents.map(offEvent => offEvent.callback(null, offEvent.eventHash));
+  }
+
+  private _offAction(eventHash: string): void {
+    this._events = this._events.filter(m => m.eventHash !== eventHash);
+  }
+
+  private _offEventEmit(eventName: any): void {
+    const offEventName = getOffEventName(eventName);
+    const offEvents = this._offTriggers.filter(m => m.eventName === offEventName);
+
+    offEvents.map(offEvent => offEvent.callback(null, offEvent.eventHash));
+  }
+
+  private _offEventAction(eventName: any): void {
+    this._events = this._events.filter(m => m.eventName !== eventName);
+  }
+
+  private _offAllEmit(): void {
+    const offEventName = getOffAllName();
+    const offEvents = this._offTriggers.filter(m => m.eventName === offEventName);
+
+    offEvents.map(offEvent => offEvent.callback(null, offEvent.eventHash));
+  }
+
+  private _offAllAction(): void {
+    this._events = [];
+  }
+}
+
+function getOffName(eventHash: string) {
+  return `trigger_off_${eventHash}`;
+}
+
+function getOffEventName(eventName: string) {
+  return `trigger_off_event_${eventName}`;
+}
+
+function getOffAllName() {
+  return `trigger_off_all`;
 }

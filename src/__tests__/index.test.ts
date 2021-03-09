@@ -1,4 +1,5 @@
 import { EventEmitter } from '../eventEmitter';
+import { CacheEmitter } from '../cacheEmitter';
 
 class TestEmitter<EventMap extends { [eventName: string]: any }> extends EventEmitter<EventMap> {
   static createTestEmitter<EventMap extends { [eventName: string]: any }>() {
@@ -12,6 +13,21 @@ class TestEmitter<EventMap extends { [eventName: string]: any }> extends EventEm
 
   public get testStates() {
     return this._states;
+  }
+}
+
+class TestCacheEmitter extends CacheEmitter {
+  static createTestEmitter() {
+    const emitter = new TestCacheEmitter();
+    return emitter;
+  }
+
+  public get testEvents() {
+    return this._emitter['_events'];
+  }
+
+  public get testStates() {
+    return this._emitter['_states'];
   }
 }
 
@@ -159,8 +175,8 @@ describe('test emitter', () => {
     done();
   });
 
-  test('cacheCall', async done => {
-    const emitter = TestEmitter.createTestEmitter();
+  test('cacheEmitter', async done => {
+    const emitter = TestCacheEmitter.createTestEmitter();
     let count = 0;
     const testCallback = async () => {
       await new Promise(resolve => setTimeout(resolve, 100));
@@ -168,7 +184,7 @@ describe('test emitter', () => {
       return 'test';
     };
 
-    const results = await Promise.all([emitter.cacheCall('query1', testCallback), emitter.cacheCall('query1', testCallback)]);
+    const results = await Promise.all([emitter.call('query1', testCallback), emitter.call('query1', testCallback)]);
 
     expect(results).toEqual(['test', 'test']);
     expect(count).toBe(1);
@@ -184,13 +200,13 @@ describe('test emitter', () => {
       };
     };
 
-    const emitter = TestEmitter.createTestEmitter();
+    const emitter = TestCacheEmitter.createTestEmitter();
     let testStringRaw = '';
     let testStringCache = '';
     let isListinig = false;
 
     const call = () => {
-      const eventHash = emitter.cacheSubscribe(
+      const eventHash = emitter.subscribe(
         'query1',
         callback => {
           return Promise.resolve().then(() => {
@@ -210,7 +226,7 @@ describe('test emitter', () => {
           testStringCache = `${testStringCache} ${data}`.trim();
         },
       );
-      return () => emitter.off(eventHash);
+      return () => emitter.unsubscribe(eventHash);
     };
 
     const unlistener1 = call();
@@ -218,7 +234,7 @@ describe('test emitter', () => {
 
     await new Promise(resolve => setTimeout(resolve, 200));
 
-    expect(emitter.testEvents.length).toBe(3);
+    expect(emitter.testEvents.length).toBe(2);
     expect(testStringRaw).toBe('1');
     expect(testStringCache).toBe('1 1');
     expect(isListinig).toBe(true);
@@ -227,7 +243,7 @@ describe('test emitter', () => {
 
     await new Promise(resolve => setTimeout(resolve, 200));
 
-    expect(emitter.testEvents.length).toBe(2);
+    expect(emitter.testEvents.length).toBe(1);
     expect(testStringRaw).toBe('1 1 1');
     expect(testStringCache).toBe('1 1 1 1');
     expect(isListinig).toBe(true);
@@ -271,6 +287,41 @@ describe('test emitter', () => {
     expect(test2Called2).toBeFalsy();
 
     emitter.offAll();
+
+    done();
+  });
+
+  test('off triggers', done => {
+    let offTest1Called = false;
+    let offTest1EventCalled = false;
+    let offTest2Called = false;
+    let offTest2EventCalled = false;
+    let offAllCalled = false;
+
+    const emitter = TestEmitter.createTestEmitter();
+
+    const test1Hash = emitter.on('test1', () => {});
+    const test2Hash = emitter.on('test2', () => {});
+
+    emitter.triggerOff(test1Hash, () => (offTest1Called = true));
+    emitter.triggerOff(test2Hash, () => (offTest2Called = true));
+    emitter.triggerOffEvent('test1', () => (offTest1EventCalled = true));
+    emitter.triggerOffEvent('test2', () => (offTest2EventCalled = true));
+    emitter.triggerOffAll(() => (offAllCalled = true));
+
+    emitter.off(test1Hash);
+
+    expect(offTest1Called).toBeTruthy();
+    expect(offTest1EventCalled).toBeTruthy();
+    expect(offTest2Called).toBeFalsy();
+    expect(offTest2EventCalled).toBeFalsy();
+    expect(offAllCalled).toBeFalsy();
+
+    emitter.offEvent('test2');
+
+    expect(offTest2Called).toBeTruthy();
+    expect(offTest2EventCalled).toBeTruthy();
+    expect(offAllCalled).toBeTruthy();
 
     done();
   });
