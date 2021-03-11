@@ -1,6 +1,6 @@
 {
   "name": "@berish/emitter",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "Удобный механиз работы с событиями. Умеет кешировать запросы и подписки, за счет чего можно экономить ресурсы запросов",
   "main": "build/index.js",
   "typings": "build/index.d.ts",
