@@ -3,6 +3,10 @@ import { EventEmitter } from './eventEmitter';
 export class CacheEmitter {
   protected _emitter = new EventEmitter();
 
+  public get emitter() {
+    return this._emitter;
+  }
+
   /**
    * Кешированный вызов метода. Если в процессе исполнения метода, вызывается этот метод еще раз,
    * то не произовдит дополнительных запросов, а ожидает выполнение первого по ключу.

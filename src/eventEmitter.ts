@@ -97,6 +97,26 @@ export class EventEmitter<EventMap extends EmitterMapBaseType = EmitterMapBaseTy
   }
 
   /**
+   * Возвращает Promise в ожидании срабатывания события
+   * @param eventName Название события
+   * @param stateName Название этапа
+   * @param timeout Таймаут ожидания (defaults 0)
+   * @param rejectReturn Если передается, то при срабатывании времени таймаута возвращает reject с результатом, который передает эта функция. Если метод не передается, то при срабатывании таймаута возращает resolve
+   */
+  public waitEventTimeout<EventName extends keyof EventMap>(eventName: EventName, timeout?: number, rejectReturn?: () => any): Promise<EventMap[EventName]>;
+  public waitEventTimeout<StateName extends keyof StateMap>(stateName: StateName, timeout?: number, rejectReturn?: () => any): Promise<StateMap[StateName]>;
+  public waitEventTimeout<EventName extends keyof EventMap>(eventName: EventName, timeout?: number, rejectReturn?: () => any): Promise<any> {
+    const eventPromise = this.waitEvent(eventName);
+    const timeoutPromise = new Promise<void>((resolve, reject) =>
+      setTimeout(() => {
+        if (rejectReturn) reject(rejectReturn());
+        else resolve();
+      }, timeout || 0),
+    );
+    return Promise.race([eventPromise, timeoutPromise]);
+  }
+
+  /**
    * Прекратить прослушивать событие конкретного идентификатора
    * @param eventHash Уникальный идентификатор события прослушивания
    */

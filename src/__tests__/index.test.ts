@@ -325,4 +325,37 @@ describe('test emitter', () => {
 
     done();
   });
+
+  test('wait event timeout', async done => {
+    const emitter = TestEmitter.createTestEmitter();
+
+    emitter.emitStateSync('test1', true);
+
+    const test1Data = await emitter.waitEventTimeout('test1');
+    const test2Data = await emitter.waitEventTimeout('test2');
+    const test3Data = await emitter
+      .waitEventTimeout('test3', 0, () => 'timeout')
+      .then(() => false)
+      .catch(data => data);
+
+    setTimeout(() => emitter.emitStateSync('test4', true), 500);
+    const test4Data = await emitter
+      .waitEventTimeout('test4', 0, () => 'timeout')
+      .then(data => data)
+      .catch(data => data);
+
+    setTimeout(() => emitter.emitStateSync('test5', true), 100);
+    const test5Data = await emitter
+      .waitEventTimeout('test4', 500, () => 'timeout')
+      .then(data => data)
+      .catch(data => data);
+
+    expect(test1Data).toBeTruthy();
+    expect(test2Data).toBeUndefined();
+    expect(test3Data).toBe('timeout');
+    expect(test4Data).toBe('timeout');
+    expect(test5Data).toBeTruthy();
+
+    done();
+  });
 });
