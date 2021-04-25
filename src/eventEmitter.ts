@@ -56,7 +56,7 @@ export class EventEmitter<EventMap extends EmitterMapBaseType = EmitterMapBaseTy
     return this._events.some(m => m.callback === callback);
   }
 
-  public getState<StateName extends keyof StateMap>(stateName: StateName) {
+  public getState<StateName extends keyof StateMap>(stateName: StateName): StateMap[StateName] {
     const item = this._states.find(m => m.stateName === stateName);
     return item && item.data;
   }
